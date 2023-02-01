@@ -1,155 +1,93 @@
 package main
 
 import (
-	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
-	"net/http"
 	"os"
-	"strconv"
 )
 
 func main() {
 	results := make(chan []Clip)
 	jobs := make(chan uint64)
 
-	PagesAmount, WorkerAmount, Channel, FilePath := flag.Uint64("pages", 1, "uint64 pages amount"),
-		flag.Uint("workers", 1, "int worker amount"),
-		flag.String("channel", "twitch", "twitch channel name"),
-		flag.String("outputFile", "output.json", "output outputFile for the clips")
+	pages, workers, channel, filePath :=
+		flag.Uint64("pages", 1, "Clips max pages"),
+		flag.Uint("workers", 1, "Workers amount"),
+		flag.String("channel", "twitch", "Twitch channel name"),
+		flag.String("file", "output.json", "File destination")
 
-	outputFile, err := os.Create(*FilePath)
-	outputFile.Write([]byte("["))
-	defer outputFile.Close()
-
-	if err != nil {
-		fmt.Println("Error creating outputFile:", err.Error())
-		return
-	}
 	flag.Parse()
 
-	for i := uint(0); i < *WorkerAmount; i++ {
-		go func(i uint) {
-			for page := range jobs {
+	outStream, err := os.Create(*filePath)
+	outStream.Write([]byte("["))
 
-				fmt.Printf("Worker[%d] -> fetching page %d\n", i, page)
-				clipArr, _ := fetchClip(page, *Channel)
-
-				if len(clipArr) < 1 {
-					return
-				}
-
-				results <- clipArr
-			}
-		}(i)
+	if err != nil {
+		panic(err)
 	}
 
-	go func() {
-		for i := uint64(0); i < *PagesAmount; i++ {
-			fmt.Printf("Task -> Requesting Page %d\n", i)
-			jobs <- uint64(i)
+	// This whole proccess can be encapsulated in a struct,
+	// then you won't need to pass the same arguments to multiple functions
+
+	for id := uint(0); id < *workers; id++ {
+		go Worker(jobs, results, *channel, id)
+	}
+	go JobSender(jobs, *pages)
+	Writer(*pages, results, outStream)
+
+}
+
+func JobSender(jobs chan uint64, pages uint64) {
+	for i := uint64(0); i < pages; i++ {
+		fmt.Printf("Task -> Requesting Page %d\n", i)
+		jobs <- uint64(i)
+	}
+	close(jobs)
+}
+
+func Worker(jobs chan uint64, results chan []Clip, channel string, id uint) {
+
+	for page := range jobs {
+
+		fmt.Printf("Worker[%d] -> Fetching page %d\n", id, page)
+		clipArr, _ := fetchClip(page, channel)
+
+		if len(clipArr) < 1 {
+			return
 		}
-	}()
 
-	for i := uint64(0); i < *PagesAmount; i++ {
-		clips := <-results
+		results <- clipArr
+	}
 
-		jsonClips, err := json.Marshal(clips)
+}
+
+func Writer(pages uint64, results chan []Clip, outStream *os.File) {
+
+	for i := uint64(0); i < pages; i++ {
+
+		clips, err := json.Marshal(<-results)
 
 		if err != nil {
 			fmt.Println("Error marshaling json:", err.Error())
 		}
 
-		data := jsonClips[1 : len(jsonClips)-1]
-		if *PagesAmount > 1 && i != *PagesAmount-1 {
+		data := clips[1 : len(clips)-1]
+
+		if pages > 1 && i != pages-1 {
 			data = append(data, byte(','))
 		}
-		n, err := outputFile.Write(data)
+
+		n, err := outStream.Write(data)
 
 		if err != nil {
 			fmt.Println("Error writing to outputFile:", err.Error())
 			continue
 		}
-		fmt.Println("Writing -> :", n, "bytes")
+
+		fmt.Println("Writing -> :", n/1000, "KB")
 
 	}
-	outputFile.Write([]byte("]"))
-	close(jobs)
 
-}
-
-func fetchClip(page uint64, channel string) ([]Clip, error) {
-	client := http.Client{}
-	//fmt.Println("Requesting page:", page)
-	var pageSize uint64 = 50
-	payload := ClipsPayload{
-		OperationName: "ClipsCards__User",
-		Variables: Variables{
-			Login: channel,
-			Limit: int(pageSize),
-			Criteria: Criteria{
-				Filter: "ALL_TIME",
-			},
-			Cursor: base64.StdEncoding.EncodeToString([]byte(strconv.FormatUint(page*pageSize, 10))),
-		},
-		Extensions: RequestExtensions{
-			PersistedQuery: PersistedQuery{
-				Version:    1,
-				Sha256Hash: "b73ad2bfaecfd30a9e6c28fada15bd97032c83ec77a0440766a56fe0bd632777",
-			},
-		},
-	}
-	payloadJson, err := json.Marshal(payload)
-
-	if err != nil {
-		return nil, err
-	}
-	request, err := http.NewRequest("POST", "https://gql.twitch.tv/gql", bytes.NewBuffer(payloadJson))
-
-	if err != nil {
-		fmt.Println("Failed to create a new http request")
-		return nil, err
-	}
-
-	request.Header.Add("client-id", "kimne78kx3ncx6brgo4mv6wki5h1ko")
-	resp, err := client.Do(request)
-
-	if err != nil {
-		fmt.Println("Error while sending post request:", err.Error())
-		return nil, err
-	}
-
-	if resp.StatusCode != 200 {
-		fmt.Println("Status code is not 200 got:", resp.StatusCode)
-		return nil, err
-	}
-
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		fmt.Println("Error reading body:", err.Error())
-		return nil, err
-	}
-
-	var clips TwitchClips
-
-	err = json.Unmarshal(body, &clips)
-
-	if err != nil {
-		fmt.Println("Error while unmarshaling json:", err.Error())
-		return nil, err
-	}
-
-	var normalizedClips []Clip
-
-	for _, node := range clips.Data.User.Clips.Edges {
-		normalizedClips = append(normalizedClips, node.Node)
-	}
-
-	return normalizedClips, nil
+	outStream.Write([]byte("]"))
+	outStream.Close()
 }
