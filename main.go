@@ -32,9 +32,10 @@ func main() {
 	flag.Parse()
 
 	for i := uint(0); i < *WorkerAmount; i++ {
-		go func() {
+		go func(i uint) {
 			for page := range jobs {
-				fmt.Printf("WORKER [%d] PAGE(%d) -> BEGIN JOB\n", i, page)
+
+				fmt.Printf("Worker[%d] -> fetching page %d\n", i, page)
 				clipArr, _ := fetchClip(page, *Channel)
 
 				if len(clipArr) < 1 {
@@ -43,13 +44,13 @@ func main() {
 
 				results <- clipArr
 			}
-		}()
+		}(i)
 	}
 
 	go func() {
 		for i := uint64(0); i < *PagesAmount; i++ {
+			fmt.Printf("Task -> Requesting Page %d\n", i)
 			jobs <- uint64(i)
-			fmt.Printf("SEND JOB -> PAGE(%d)\n", i)
 		}
 	}()
 
@@ -70,9 +71,9 @@ func main() {
 
 		if err != nil {
 			fmt.Println("Error writing to outputFile:", err.Error())
-		} else {
-			fmt.Println("Wrote:", n, "bytes")
+			continue
 		}
+		fmt.Println("Writing -> :", n, "bytes")
 
 	}
 	outputFile.Write([]byte("]"))
