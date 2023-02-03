@@ -1,10 +1,11 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/csv"
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 )
 
 func main() {
@@ -15,15 +16,47 @@ func main() {
 		flag.Uint64("pages", 1, "Clips max pages"),
 		flag.Uint("workers", 1, "Workers amount"),
 		flag.String("channel", "twitch", "Twitch channel name"),
-		flag.String("file", "output.json", "File destination")
+		flag.String("file", "output.csv", "File destination")
 
 	flag.Parse()
 
-	outStream, err := os.Create(*filePath)
-	outStream.Write([]byte("["))
+	if *pages > PAGE_SIZE_LIMIT {
+		fmt.Printf("Page size limit is: %d\n", PAGE_SIZE_LIMIT)
+		os.Exit(1)
+	}
+
+	file, err := os.OpenFile(*filePath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
 
 	if err != nil {
 		panic(err)
+	}
+
+	fileStat, err := file.Stat()
+
+	if err != nil {
+		panic(err)
+	}
+
+	csvWriter := csv.NewWriter(file)
+	if fileStat.Size() < 1 {
+		err = csvWriter.Write([]string{
+			"id",
+			"slug",
+			"title",
+			"views",
+			"curatorId",
+			"curatorLogin",
+			"curatorDisplayName",
+			"gameId",
+			"gameName",
+			"thumbnailUrl",
+			"createdAt",
+			"duration",
+		})
+
+		if err != nil {
+			panic(fmt.Sprintf("Could not write csv header: %s", err.Error()))
+		}
 	}
 
 	// This whole proccess can be encapsulated in a struct,
@@ -33,8 +66,10 @@ func main() {
 		go Worker(jobs, results, *channel, id)
 	}
 	go JobSender(jobs, *pages)
-	Writer(*pages, results, outStream)
+	Writer(*pages, results, csvWriter)
 
+	file.Close()
+	csvWriter.Flush()
 }
 
 func JobSender(jobs chan uint64, pages uint64) {
@@ -50,10 +85,10 @@ func Worker(jobs chan uint64, results chan []Clip, channel string, id uint) {
 	for page := range jobs {
 
 		fmt.Printf("Worker[%d] -> Fetching page %d\n", id, page)
-		clipArr, _ := fetchClip(page, channel)
+		clipArr, err := fetchClip(page, channel)
 
-		if len(clipArr) < 1 {
-			return
+		if err != nil || len(clipArr) < 1 {
+			panic(err)
 		}
 
 		results <- clipArr
@@ -61,33 +96,33 @@ func Worker(jobs chan uint64, results chan []Clip, channel string, id uint) {
 
 }
 
-func Writer(pages uint64, results chan []Clip, outStream *os.File) {
+func Writer(pages uint64, results chan []Clip, csvWriter *csv.Writer) {
 
 	for i := uint64(0); i < pages; i++ {
 
-		clips, err := json.Marshal(<-results)
+		clips := <-results
 
-		if err != nil {
-			fmt.Println("Error marshaling json:", err.Error())
+		var clipsCsv [][]string
+
+		for _, clip := range clips {
+			clipsCsv = append(clipsCsv, []string{
+				clip.ID,
+				clip.Slug,
+				clip.Title,
+				strconv.Itoa(clip.ViewCount),
+				clip.Curator.ID,
+				clip.Curator.Login,
+				clip.Curator.DisplayName,
+				clip.Game.ID,
+				clip.Game.Name,
+				clip.ThumbnailURL,
+				clip.CreatedAt.String(),
+				strconv.Itoa(clip.DurationSeconds),
+			})
 		}
 
-		data := clips[1 : len(clips)-1]
-
-		if pages > 1 && i != pages-1 {
-			data = append(data, byte(','))
-		}
-
-		n, err := outStream.Write(data)
-
-		if err != nil {
-			fmt.Println("Error writing to outputFile:", err.Error())
-			continue
-		}
-
-		fmt.Println("Writing -> :", n/1000, "KB")
+		csvWriter.WriteAll(clipsCsv)
 
 	}
 
-	outStream.Write([]byte("]"))
-	outStream.Close()
 }

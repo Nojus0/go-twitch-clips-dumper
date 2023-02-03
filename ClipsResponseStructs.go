@@ -2,9 +2,14 @@ package main
 
 import "time"
 
+type Error struct {
+	Message string `json:"message"`
+}
+
 type TwitchClips struct {
 	Data       Data               `json:"data"`
 	Extensions ResponseExtensions `json:"extensions"`
+	Errors     *[]Error
 }
 type PageInfo struct {
 	HasNextPage bool   `json:"hasNextPage"`

@@ -4,25 +4,31 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 )
 
+var ErrLimitReachedError = errors.New("twitch 100,000 clip limit reached")
+
+const PAGE_SIZE_LIMIT = ((100_000 - PageSize) / PageSize)
+
+const PageSize = 100
+
 func fetchClip(page uint64, channel string) ([]Clip, error) {
 	client := http.Client{}
 
-	var pageSize uint64 = 50
 	payload := ClipsPayload{
 		OperationName: "ClipsCards__User",
 		Variables: Variables{
 			Login: channel,
-			Limit: int(pageSize),
+			Limit: int(PageSize),
 			Criteria: Criteria{
 				Filter: "ALL_TIME",
 			},
-			Cursor: base64.StdEncoding.EncodeToString([]byte(strconv.FormatUint(page*pageSize, 10))),
+			Cursor: base64.StdEncoding.EncodeToString([]byte(strconv.FormatUint(page*PageSize, 10))),
 		},
 		Extensions: RequestExtensions{
 			PersistedQuery: PersistedQuery{
@@ -75,6 +81,10 @@ func fetchClip(page uint64, channel string) ([]Clip, error) {
 	}
 
 	var rawClips []Clip
+
+	if clips.Errors != nil {
+		return nil, ErrLimitReachedError
+	}
 
 	for _, node := range clips.Data.User.Clips.Edges {
 		rawClips = append(rawClips, node.Node)
