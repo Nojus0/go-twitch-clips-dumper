@@ -87,7 +87,7 @@ func Worker(jobs chan uint64, results chan []Clip, channel string, id uint) {
 		fmt.Printf("Worker[%d] -> Fetching page %d\n", id, page)
 		clipArr, err := fetchClip(page, channel)
 
-		if err != nil || len(clipArr) < 1 {
+		if err != nil {
 			panic(err)
 		}
 

@@ -9,7 +9,7 @@ type Error struct {
 type TwitchClips struct {
 	Data       Data               `json:"data"`
 	Extensions ResponseExtensions `json:"extensions"`
-	Errors     *[]Error
+	Errors     *[]Error           `json:"errors"`
 }
 type PageInfo struct {
 	HasNextPage bool   `json:"hasNextPage"`
@@ -68,7 +68,7 @@ type User struct {
 	Typename string `json:"__typename"`
 }
 type Data struct {
-	User User `json:"user"`
+	User *User `json:"user"`
 }
 type ResponseExtensions struct {
 	DurationMilliseconds int    `json:"durationMilliseconds"`

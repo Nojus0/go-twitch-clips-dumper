@@ -12,6 +12,7 @@ import (
 )
 
 var ErrLimitReachedError = errors.New("twitch 100,000 clip limit reached")
+var ErrUserNotFound = errors.New("user not found")
 
 const PAGE_SIZE_LIMIT = ((100_000 - PageSize) / PageSize)
 
@@ -84,6 +85,10 @@ func fetchClip(page uint64, channel string) ([]Clip, error) {
 
 	if clips.Errors != nil {
 		return nil, ErrLimitReachedError
+	}
+
+	if clips.Data.User == nil {
+		return nil, ErrUserNotFound
 	}
 
 	for _, node := range clips.Data.User.Clips.Edges {
