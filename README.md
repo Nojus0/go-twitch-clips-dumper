@@ -6,4 +6,4 @@ Multi-Threaded Twitch Clips Dumper.
 # Building & Usage
 1. Install Go
 2. Run `go build`
-3. Run the built executable `./clipdumper -channel=twitch -file=test.json -pages=1000 -workers=10`
+3. Run the built executable `./clipdumper -channel=twitch -file=twitch.csv -pages=999 -workers=100`
